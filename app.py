@@ -1,42 +1,117 @@
 import streamlit as st
-import pickle
+import pandas as pd
 import numpy as np
-import os
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-st.title("🚗 Car Evaluation Prediction (Decision Tree)")
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 
-# -----------------------------
-# Load Model
-# -----------------------------
-MODEL_PATH = "decision_tree_car_model.pkl"
+st.set_page_config(page_title="Customer Segmentation", layout="wide")
 
-if not os.path.exists(MODEL_PATH):
-    st.error(f"❌ Model file '{MODEL_PATH}' not found.\n\nPlease run your notebook to train and save the model first.")
-    st.stop()
+# ----------------------------
+# Title
+# ----------------------------
+st.title("🧠 Customer Segmentation using K-Means")
+st.write("This app clusters customers based on demographic and spending behavior.")
 
-model = pickle.load(open(MODEL_PATH, "rb"))
+# ----------------------------
+# Upload Dataset
+# ----------------------------
+uploaded_file = st.file_uploader("Upload Customer Dataset (CSV)", type="csv")
 
-# -----------------------------
-# User Inputs
-# -----------------------------
-st.subheader("Enter Car Features")
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
 
-buying = st.selectbox("Buying Price", ["low","med","high","vhigh"])
-maint = st.selectbox("Maintenance Cost", ["low","med","high","vhigh"])
-doors = st.selectbox("Number of Doors", ["2","3","4","5more"])
-persons = st.selectbox("Seating Capacity", ["2","4","more"])
-lug_boot = st.selectbox("Luggage Boot Size", ["small","med","big"])
-safety = st.selectbox("Safety", ["low","med","high"])
+    st.subheader("📊 Dataset Preview")
+    st.dataframe(df.head())
 
-# -----------------------------
-# Encode Inputs (same as training)
-# -----------------------------
-mapping = {
-    "low":0, "med":1, "high":2, "vhigh":3,
-    "2":0, "3":1, "4":2, "5more":3,
-    "small":0, "med":1, "big":2,
-    "more":2
-}
+    # ----------------------------
+    # Data Cleaning
+    # ----------------------------
+    st.subheader("🧹 Data Cleaning")
+
+    num_cols = ['Age', 'Work_Experience', 'Family_Size']
+    cat_cols = ['Gender', 'Ever_Married', 'Graduated', 'Profession', 'Var_1']
+
+    for col in num_cols:
+        if col in df.columns:
+            df[col].fillna(df[col].median(), inplace=True)
+
+    for col in cat_cols:
+        if col in df.columns:
+            df[col].fillna(df[col].mode()[0], inplace=True)
+
+    if 'ID' in df.columns:
+        df.drop('ID', axis=1, inplace=True)
+
+    st.success("Missing values handled and ID column removed")
+
+    # ----------------------------
+    # Encoding
+    # ----------------------------
+    df_encoded = pd.get_dummies(df, drop_first=True)
+
+    # ----------------------------
+    # Scaling
+    # ----------------------------
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(df_encoded)
+
+    # ----------------------------
+    # Choose K
+    # ----------------------------
+    st.subheader("🔢 Choose Number of Clusters")
+    k = st.slider("Select K", min_value=2, max_value=10, value=5)
+
+    # ----------------------------
+    # Train Model
+    # ----------------------------
+    kmeans = KMeans(n_clusters=k, random_state=42)
+    clusters = kmeans.fit_predict(X_scaled)
+
+    df['Cluster'] = clusters
+
+    # ----------------------------
+    # Evaluation
+    # ----------------------------
+    score = silhouette_score(X_scaled, clusters)
+    st.metric("Silhouette Score", round(score, 3))
+
+    # ----------------------------
+    # Visualization
+    # ----------------------------
+    st.subheader("📈 Cluster Visualization")
+
+    fig, ax = plt.subplots()
+    sns.scatterplot(
+        x='Age',
+        y='Spending_Score',
+        hue='Cluster',
+        palette='Set2',
+        data=df,
+        ax=ax
+    )
+    ax.set_title("Customer Clusters")
+    st.pyplot(fig)
+
+    # ----------------------------
+    # Cluster Summary
+    # ----------------------------
+    st.subheader("📌 Cluster Summary")
+    summary = df.groupby('Cluster')[[
+        'Age',
+        'Work_Experience',
+        'Family_Size',
+        'Spending_Score'
+    ]].mean()
+
+    st.dataframe(summary)
+
+else:
+    st.info("👆 Upload a CSV file to get started")
+
 
 X = np.array([[
     mapping[buying],
@@ -61,3 +136,4 @@ if st.button("Predict"):
     }
 
     st.success(f"Prediction: ⭐ {class_mapping[pred]}")
+
